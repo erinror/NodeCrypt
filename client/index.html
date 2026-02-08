@@ -12,7 +12,6 @@
 	<meta name="description" content="NodeCrypt - True end-to-end encrypted chat system.">
 	<style>
 		.preload * { transition: none !important; }
-		/* 新增样式：管理员登录和分享弹窗 */
 		.modal-overlay {
 			display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
 			background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center;
@@ -21,27 +20,32 @@
 		.modal-box {
 			background: #1e1e1e; padding: 25px; border-radius: 12px; border: 1px solid #333;
 			width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+			color: #fff;
 		}
-		.modal-title { color: #fff; margin-bottom: 20px; font-size: 1.2rem; text-align: center; }
-		.admin-input {
+		.modal-title { color: #fff; margin-bottom: 20px; font-size: 1.2rem; text-align: center; font-weight: bold;}
+		.admin-input, .modal-select {
 			width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444;
 			color: #fff; border-radius: 6px; margin-bottom: 15px; outline: none; box-sizing: border-box;
 		}
+		.modal-select { cursor: pointer; }
 		.admin-input:focus { border-color: #666; }
-		.modal-btn-group { display: flex; gap: 10px; margin-top: 10px; }
+		.modal-label { color: #aaa; font-size: 0.9rem; margin-bottom: 8px; display: block; }
+		.modal-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+		.modal-checkbox-label { display: flex; align-items: center; cursor: pointer; color: #ccc; }
+		.modal-checkbox { margin-right: 10px; width: 18px; height: 18px; }
+		
+		.modal-btn-group { display: flex; gap: 10px; margin-top: 15px; }
 		.modal-btn {
 			flex: 1; padding: 10px; border: none; border-radius: 6px; cursor: pointer;
 			font-weight: bold; transition: opacity 0.2s;
 		}
-		.btn-confirm { background: #fff; color: #000; }
+		.btn-confirm { background: #4CAF50; color: #fff; }
 		.btn-cancel { background: #333; color: #ccc; }
 		.modal-btn:hover { opacity: 0.9; }
-		/* 分享结果样式 */
-		.share-result { margin-top: 15px; padding: 10px; background: #252525; border-radius: 4px; word-break: break-all; display: none; }
-		.share-result a { color: #4CAF50; text-decoration: none; }
+		.share-result { margin-top: 15px; padding: 10px; background: #252525; border-radius: 4px; word-break: break-all; display: none; text-align: center; }
+		.share-result a { color: #4CAF50; text-decoration: none; display: block; margin-top: 5px; }
 		
-		/* 设置菜单中的分享按钮 */
-		.settings-item.admin-only { display: none; } /* 默认隐藏 */
+		.settings-item.admin-only { display: none; }
 	</style>
 </head>
 <body class="preload">
@@ -59,40 +63,104 @@
 		</div>
 	</div>
 
-	<!-- 2. 生成分享链接弹窗 -->
+	<!-- 2. 生成邀请链接弹窗 (高级版) -->
 	<div id="invite-modal" class="modal-overlay">
 		<div class="modal-box">
 			<h3 class="modal-title">生成邀请链接</h3>
-			<div style="color:#aaa; font-size:0.9rem; margin-bottom:10px;">限制使用次数 (0 表示无限):</div>
+			
+			<label class="modal-label">绑定房间 (可选):</label>
+			<input type="text" id="invite-room-name" class="admin-input" placeholder="默认为当前房间...">
+			
+			<div class="modal-row">
+				<label class="modal-checkbox-label">
+					<input type="checkbox" id="invite-need-pwd" class="modal-checkbox">
+					需验证房间密码
+				</label>
+			</div>
+
+			<label class="modal-label">有效期:</label>
+			<select id="invite-duration" class="modal-select">
+				<option value="60">1 小时</option>
+				<option value="1440">1 天</option>
+				<option value="10080">7 天</option>
+				<option value="0">永久有效</option>
+			</select>
+			
+			<label class="modal-label">最大使用次数 (0 为无限):</label>
 			<input type="number" id="invite-limit" class="admin-input" value="1" min="0">
 			
-			<div style="color:#aaa; font-size:0.9rem; margin-bottom:10px;">备注 (可选):</div>
-			<input type="text" id="invite-note" class="admin-input" placeholder="例如: 给张三的邀请">
+			<label class="modal-label">备注:</label>
+			<input type="text" id="invite-note" class="admin-input" placeholder="给谁的链接...">
 			
 			<div id="invite-result" class="share-result"></div>
 			
 			<div class="modal-btn-group">
-				<button id="btn-create-invite" class="modal-btn btn-confirm">生成</button>
+				<button id="btn-create-invite" class="modal-btn btn-confirm">生成链接</button>
 				<button onclick="document.getElementById('invite-modal').style.display='none'" class="modal-btn btn-cancel">关闭</button>
 			</div>
 		</div>
 	</div>
 
-	<!-- 原有登录界面 -->
+	<!-- 3. 访客极简登录弹窗 -->
+	<div id="guest-modal" class="modal-overlay" style="z-index: 2001;">
+		<div class="modal-box">
+			<h3 class="modal-title" id="guest-welcome-title">加入房间</h3>
+			<form id="guest-login-form">
+				<label class="modal-label">设置你的昵称</label>
+				<input type="text" id="guest-nickname" class="admin-input" placeholder="例如：访客007" required autocomplete="off">
+				
+				<div id="guest-pwd-group" style="display:none;">
+					<label class="modal-label">房间密码</label>
+					<input type="password" id="guest-room-pwd" class="admin-input" placeholder="管理员设置了密码保护" autocomplete="off">
+				</div>
+
+				<div class="modal-btn-group">
+					<button type="submit" class="modal-btn btn-confirm">进入聊天室</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<!-- 原有主界面 (已修改文本: 节点->房间) -->
 	<div class="login-container" id="login-container">
 		<div class="flip-card" id="flip-card">
 			<div class="flip-card-inner">
 				<div class="flip-card-front">
 					<button class="help-btn" id="help-btn" type="button"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg></button>
-					<h1 id="login-title"></h1>
-					<form id="login-form"></form>
+					<h1 id="login-title">NodeCrypt</h1>
+					<!-- 这里为了确保去节点化，我们手动写死表单结构，覆盖 JS 生成的内容 -->
+					<form id="login-form">
+						<div class="form-group">
+							<div class="input-wrapper">
+								<input type="text" id="userName" required autocomplete="off">
+								<label for="userName" class="label-name"><span class="content-name">昵称 (Nickname)</span></label>
+							</div>
+						</div>
+						<div class="form-group">
+							<div class="input-wrapper">
+								<input type="text" id="roomName" required autocomplete="off">
+								<label for="roomName" class="label-name"><span class="content-name">房间号 (Room ID)</span></label>
+							</div>
+						</div>
+						<div class="form-group">
+							<div class="input-wrapper">
+								<input type="password" id="password" autocomplete="off">
+								<label for="password" class="label-name"><span class="content-name">密码 (可选)</span></label>
+							</div>
+						</div>
+						<div class="form-btn-group">
+							<button type="submit" class="login-btn">进入房间</button>
+						</div>
+					</form>
 				</div>
 				<div class="flip-card-back">
 					<button class="help-btn back-btn" id="back-btn" type="button"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
-					<h2 data-i18n="help.usage_guide"></h2>
+					<h2 data-i18n="help.usage_guide">使用指南</h2>
 					<div class="help-content">
-                        <!-- 保留原有帮助内容 -->
-						<div class="help-section"><h3 data-i18n="help.what_is_nodecrypt"></h3><p data-i18n="help.what_is_nodecrypt_desc"></p></div>
+						<div class="help-section">
+                            <h3>什么是 NodeCrypt?</h3>
+                            <p>这是一个端到端加密的聊天室，服务器无法看到你的消息内容。</p>
+                        </div>
 					</div>
 				</div>
 			</div>
@@ -100,21 +168,18 @@
 		<div class="powered-by">Powered by <a href="#">NodeCrypt</a></div>
 	</div>
 
-	<!-- 聊天主界面 -->
+	<!-- 聊天界面保持不变 -->
 	<div class="container" id="chat-container" style="display:none;">
 		<div class="mobile-sidebar-mask" id="mobile-sidebar-mask"></div>
 		<div class="mobile-rightbar-mask" id="mobile-rightbar-mask"></div>
 		
-		<!-- 设置侧边栏 -->
 		<div class="settings-sidebar" id="settings-sidebar" style="display:none;">
 			<div class="settings-header">
 				<button class="settings-back-btn" id="settings-back-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
 				<h2 class="settings-title" id="settings-title"></h2>
 			</div>
 			<div class="settings-content" id="settings-content">
-				<!-- 原有设置内容将通过 JS 插入 -->
-				
-				<!-- 3. 新增：邀请链接按钮 (仅管理员可见) -->
+				<!-- 管理员专属菜单 -->
 				<div class="settings-group admin-only" id="admin-share-group" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px;">
 					<div class="settings-item" onclick="document.getElementById('invite-modal').style.display='flex'">
 						<div class="settings-icon">
@@ -136,7 +201,6 @@
 			<div class="main-header" id="main-header"> </div>
 			<div class="chat-area" id="chat-area"> </div>
 			<div class="chat-input-area">
-				<!-- 输入区域保持原样 -->
 				<div class="rows-wrapper chat-input-wrapper chat-input-main-wrapper chat-rows-wrapper">
 					<div class="new-message-wrapper rows-wrapper-row" data-offset="commands"> 
                         <button class="chat-emoji-btn" type="button"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#808080"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke-width="2"/><path d="M8 14C8 14 9.5 16 12 16C14.5 16 16 14 16 14" stroke-width="2" stroke-linecap="round"/><path d="M9 9H9.01" stroke-width="2" stroke-linecap="round"/><path d="M15 9H15.01" stroke-width="2" stroke-linecap="round"/></svg></button>
