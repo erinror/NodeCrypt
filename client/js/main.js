@@ -30,12 +30,14 @@ window.setupEmojiPicker = setupEmojiPicker;
 window.handleFileMessage = handleFileMessage;
 window.downloadFile = downloadFile;
 
-// === 新增：邀请和管理逻辑 ===
+// === 核心逻辑: 检查邀请、鉴权和访客模式 ===
 async function checkInviteAndAuth() {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const roomFromUrl = urlParams.get('room');
+    const needPwdFromUrl = urlParams.get('pwd') === '1';
 
-    // 1. 如果是邀请链接 /join?code=xxx
+    // 1. 邀请链接处理 /join?code=xxx
     if (window.location.pathname === '/join' && code) {
         try {
             const res = await fetch('/api/verify-invite', {
@@ -44,23 +46,25 @@ async function checkInviteAndAuth() {
             });
             const data = await res.json();
             if (res.ok) {
-                // 验证成功，Cookie 已自动写入，重定向到首页
-                window.location.href = '/';
+                // 验证成功，跳转到首页，并携带房间信息
+                let redirectUrl = '/';
+                if (data.room) {
+                    redirectUrl += `?room=${encodeURIComponent(data.room)}`;
+                    if (data.needPwd) redirectUrl += `&pwd=1`;
+                }
+                window.location.href = redirectUrl;
             } else {
-                alert('邀请链接无效或已过期！');
-                // 失败不跳转，就停留在当前页面（此时是伪装的 index.html，但因为没有 auth，WS 会连不上）
+                alert(data.error || '链接无效');
             }
         } catch (e) {
-            alert('验证失败');
+            alert('验证出错');
         }
         return;
     }
 
-    // 2. 如果是管理员入口 /admin
+    // 2. 管理员登录 /admin
     if (window.location.pathname === '/admin') {
-        // 显示登录弹窗
         $id('admin-login-modal').style.display = 'flex';
-        
         $id('admin-login-form').onsubmit = async (e) => {
             e.preventDefault();
             const pwd = $id('admin-pwd').value;
@@ -70,40 +74,86 @@ async function checkInviteAndAuth() {
                     body: JSON.stringify({ pwd })
                 });
                 if (res.ok) {
-                    // 登录成功，重定向到首页
                     window.location.href = '/';
                 } else {
                     alert('密码错误');
                 }
-            } catch (error) {
-                alert('登录请求失败');
-            }
+            } catch (error) { alert('请求失败'); }
         };
-        return; // 停止后续初始化，等待登录
+        return;
     }
 
-    // 3. 正常进入，检查是否为管理员以显示“邀请按钮”
+    // 3. 访客自动弹窗逻辑
+    // 如果 URL 中有 room 参数，说明是受邀访客
+    if (roomFromUrl) {
+        console.log('检测到访客模式，目标房间:', roomFromUrl);
+        
+        // 隐藏默认的翻转卡片
+        const loginContainer = $id('login-container');
+        if (loginContainer) loginContainer.style.display = 'none'; // 暂时隐藏，等下可能不需要显示
+        
+        // 显示极简访客弹窗
+        const guestModal = $id('guest-modal');
+        guestModal.style.display = 'flex';
+        
+        $id('guest-welcome-title').innerText = `加入房间: ${decodeURIComponent(roomFromUrl)}`;
+        
+        // 如果需要密码，显示密码框
+        if (needPwdFromUrl) {
+            $id('guest-pwd-group').style.display = 'block';
+            $id('guest-room-pwd').required = true;
+        }
+
+        $id('guest-login-form').onsubmit = (e) => {
+            e.preventDefault();
+            const nickname = $id('guest-nickname').value;
+            const pwd = needPwdFromUrl ? $id('guest-room-pwd').value : '';
+
+            // 填充并提交原始表单逻辑 (利用现有 joinRoom 功能)
+            // 这里我们模拟 loginFormHandler 的数据
+            const roomName = decodeURIComponent(roomFromUrl);
+            
+            // 关闭模态框
+            guestModal.style.display = 'none';
+            // 显示主界面 loading (如果有的话)
+            
+            // 触发加入房间
+            joinRoom(roomName, nickname, pwd);
+        };
+        return; // 结束，不执行默认的登录表单初始化
+    }
+
+    // 4. 正常管理员/用户逻辑，检查权限显示分享按钮
     try {
         const res = await fetch('/api/check-auth');
         if (res.ok) {
             const data = await res.json();
             if (data.isAdmin) {
-                // 显示设置里的邀请按钮
-                const adminGroups = document.querySelectorAll('.admin-only');
-                adminGroups.forEach(el => el.style.display = 'block');
+                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
             }
         }
     } catch (e) {}
 }
 
-// === 新增：邀请生成逻辑 ===
+// === 管理员：生成高级邀请链接 ===
 function setupInviteGenerator() {
     const btn = $id('btn-create-invite');
     if (!btn) return;
     
+    // 自动填充当前房间名 (如果已在房间内)
+    const updateRoomPlaceholder = () => {
+        if (roomsData.length > 0 && activeRoomIndex >= 0) {
+            $id('invite-room-name').value = roomsData[activeRoomIndex].name;
+        }
+    };
+    // 监听打开事件 (简单起见，点击生成按钮时才读取)
+    
     btn.onclick = async () => {
         const limit = parseInt($id('invite-limit').value) || 0;
         const note = $id('invite-note').value;
+        const duration = parseInt($id('invite-duration').value) || 0;
+        const roomName = $id('invite-room-name').value.trim();
+        const needPwd = $id('invite-need-pwd').checked;
         const resultBox = $id('invite-result');
         
         btn.innerText = '生成中...';
@@ -112,7 +162,13 @@ function setupInviteGenerator() {
         try {
             const res = await fetch('/api/admin/create-invite', {
                 method: 'POST',
-                body: JSON.stringify({ maxUses: limit, note })
+                body: JSON.stringify({ 
+                    maxUses: limit, 
+                    note,
+                    expireMinutes: duration,
+                    room: roomName,
+                    needPwd
+                })
             });
             
             if (res.ok) {
@@ -123,19 +179,20 @@ function setupInviteGenerator() {
                     <div style="color:#aaa;font-size:12px;margin-bottom:5px;">链接已生成:</div>
                     <a href="${inviteUrl}" target="_blank">${inviteUrl}</a>
                     <div style="color:#666;font-size:12px;margin-top:5px;">
-                        剩余次数: ${data.maxUses === 0 ? '无限' : data.maxUses}
+                        ${data.maxUses === 0 ? '无限次' : `剩余 ${data.maxUses} 次`} | 
+                        ${data.expireAt ? new Date(data.expireAt).toLocaleString() + ' 过期' : '永久有效'}
                     </div>
                 `;
             } else {
                 resultBox.style.display = 'block';
-                resultBox.innerText = '生成失败，请确认是否已登录';
+                resultBox.innerText = '生成失败';
             }
         } catch (e) {
             resultBox.style.display = 'block';
             resultBox.innerText = '请求出错';
         }
         
-        btn.innerText = '生成';
+        btn.innerText = '生成链接';
         btn.disabled = false;
     };
 }
@@ -143,17 +200,17 @@ function setupInviteGenerator() {
 
 // DOM 加载完成
 window.addEventListener('DOMContentLoaded', async () => {
-    // 先检查权限和路由逻辑
+    // 优先处理邀请和鉴权
     await checkInviteAndAuth();
 
-    // 如果在 /admin 或 /join 页面，不初始化聊天逻辑，避免报错
+    // 如果是 /admin 或 /join 页面，不需要初始化其他UI
     if (window.location.pathname === '/admin' || window.location.pathname === '/join') {
         return; 
     }
 
 	setTimeout(() => { document.body.classList.remove('preload'); }, 300);
 	initLoginForm();
-    setupInviteGenerator(); // 初始化邀请生成器监听
+    setupInviteGenerator(); // 初始化
 
 	const loginForm = $id('login-form');
 	if (loginForm) loginForm.addEventListener('submit', loginFormHandler(null));
@@ -189,7 +246,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 		}
 	}
 	
-	// 消息输入和发送逻辑
 	const input = document.querySelector('.input-message-input');
 	const imagePasteHandler = setupImagePaste('.input-message-input');
 	
