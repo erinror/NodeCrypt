@@ -3,94 +3,114 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>NodeCrypt</title>
+	<title>NodeCrypt Chat</title>
 	<link rel="stylesheet" href="css/style.css">
 	<link rel="stylesheet" href="css/body.css">
 	<link rel="stylesheet" href="css/phone.css">
 	<link rel="stylesheet" href="css/form-animation.css">
 	<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
-	<meta name="description" content="NodeCrypt - True end-to-end encrypted chat system.">
 	<style>
 		.preload * { transition: none !important; }
+		
+		/* === 新增弹窗样式 === */
 		.modal-overlay {
 			display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-			background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center;
+			background: rgba(0,0,0,0.85); z-index: 9999; align-items: center; justify-content: center;
 			backdrop-filter: blur(5px);
 		}
 		.modal-box {
 			background: #1e1e1e; padding: 25px; border-radius: 12px; border: 1px solid #333;
-			width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-			color: #fff;
+			width: 90%; max-width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: #fff;
 		}
-		.modal-title { color: #fff; margin-bottom: 20px; font-size: 1.2rem; text-align: center; font-weight: bold;}
+		.modal-title { color: #fff; margin-bottom: 20px; font-size: 1.3rem; text-align: center; font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 10px; }
+		
 		.admin-input, .modal-select {
 			width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444;
-			color: #fff; border-radius: 6px; margin-bottom: 15px; outline: none; box-sizing: border-box;
+			color: #fff; border-radius: 6px; margin-bottom: 15px; outline: none; box-sizing: border-box; font-size: 14px;
 		}
-		.modal-select { cursor: pointer; }
-		.admin-input:focus { border-color: #666; }
-		.modal-label { color: #aaa; font-size: 0.9rem; margin-bottom: 8px; display: block; }
-		.modal-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
-		.modal-checkbox-label { display: flex; align-items: center; cursor: pointer; color: #ccc; }
-		.modal-checkbox { margin-right: 10px; width: 18px; height: 18px; }
+		.modal-select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; }
+		.admin-input:focus { border-color: #4CAF50; }
 		
-		.modal-btn-group { display: flex; gap: 10px; margin-top: 15px; }
+		.modal-label { color: #aaa; font-size: 0.9rem; margin-bottom: 6px; display: block; font-weight: 500; }
+		.modal-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: #252525; padding: 10px; border-radius: 6px; }
+		.modal-checkbox-label { display: flex; align-items: center; cursor: pointer; color: #fff; width: 100%; }
+		.modal-checkbox { margin-right: 10px; width: 18px; height: 18px; accent-color: #4CAF50; }
+		
+		.modal-btn-group { display: flex; gap: 10px; margin-top: 20px; }
 		.modal-btn {
-			flex: 1; padding: 10px; border: none; border-radius: 6px; cursor: pointer;
-			font-weight: bold; transition: opacity 0.2s;
+			flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer;
+			font-weight: bold; transition: all 0.2s; font-size: 15px;
 		}
 		.btn-confirm { background: #4CAF50; color: #fff; }
+		.btn-confirm:hover { background: #43a047; }
 		.btn-cancel { background: #333; color: #ccc; }
-		.modal-btn:hover { opacity: 0.9; }
-		.share-result { margin-top: 15px; padding: 10px; background: #252525; border-radius: 4px; word-break: break-all; display: none; text-align: center; }
-		.share-result a { color: #4CAF50; text-decoration: none; display: block; margin-top: 5px; }
+		.btn-cancel:hover { background: #444; }
 		
-		.settings-item.admin-only { display: none; }
+		.share-result { margin-top: 15px; padding: 15px; background: #000; border: 1px solid #333; border-radius: 6px; word-break: break-all; display: none; text-align: center; }
+		.share-result a { color: #4CAF50; text-decoration: none; display: block; margin-top: 8px; font-size: 1.1em; font-weight: bold; }
+		.share-result-info { font-size: 12px; color: #888; margin-top: 5px; }
+
+		/* === 显眼的邀请按钮 === */
+		.invite-fab {
+			width: 100%; margin: 10px 0; padding: 10px; background: #2a2a2a; 
+			color: #fff; text-align: center; border-radius: 8px; cursor: pointer; 
+			border: 1px dashed #555; transition: all 0.2s;
+			display: none; /* 默认隐藏，JS检测到管理员后显示 */
+		}
+		.invite-fab:hover { background: #333; border-color: #777; }
+		.invite-fab span { vertical-align: middle; margin-left: 5px; font-size: 14px; }
 	</style>
 </head>
 <body class="preload">
 
 	<!-- 1. 管理员登录弹窗 -->
 	<div id="admin-login-modal" class="modal-overlay">
-		<div class="modal-box">
-			<h3 class="modal-title">管理员身份验证</h3>
+		<div class="modal-box" style="max-width: 350px;">
+			<h3 class="modal-title">管理员验证</h3>
 			<form id="admin-login-form">
-				<input type="password" id="admin-pwd" class="admin-input" placeholder="请输入访问密码..." autocomplete="off">
+				<label class="modal-label">请输入访问密码</label>
+				<input type="password" id="admin-pwd" class="admin-input" placeholder="Password..." autocomplete="off">
 				<div class="modal-btn-group">
-					<button type="submit" class="modal-btn btn-confirm">解锁</button>
+					<button type="submit" class="modal-btn btn-confirm">解锁系统</button>
 				</div>
 			</form>
 		</div>
 	</div>
 
-	<!-- 2. 生成邀请链接弹窗 (高级版) -->
+	<!-- 2. 高级邀请生成器弹窗 -->
 	<div id="invite-modal" class="modal-overlay">
 		<div class="modal-box">
 			<h3 class="modal-title">生成邀请链接</h3>
 			
-			<label class="modal-label">绑定房间 (可选):</label>
-			<input type="text" id="invite-room-name" class="admin-input" placeholder="默认为当前房间...">
+			<label class="modal-label">绑定房间 (留空为当前房间)</label>
+			<input type="text" id="invite-room-name" class="admin-input" placeholder="例如: SecretBase">
 			
 			<div class="modal-row">
 				<label class="modal-checkbox-label">
 					<input type="checkbox" id="invite-need-pwd" class="modal-checkbox">
-					需验证房间密码
+					<span>受邀者需输入房间密码</span>
 				</label>
 			</div>
 
-			<label class="modal-label">有效期:</label>
-			<select id="invite-duration" class="modal-select">
-				<option value="60">1 小时</option>
-				<option value="1440">1 天</option>
-				<option value="10080">7 天</option>
-				<option value="0">永久有效</option>
-			</select>
+			<div style="display: flex; gap: 10px;">
+				<div style="flex: 1;">
+					<label class="modal-label">有效期</label>
+					<select id="invite-duration" class="modal-select">
+						<option value="60">1 小时</option>
+						<option value="1440">1 天</option>
+						<option value="10080">7 天</option>
+						<option value="43200">30 天</option>
+						<option value="0">永久有效</option>
+					</select>
+				</div>
+				<div style="flex: 1;">
+					<label class="modal-label">限制人数 (0为无限)</label>
+					<input type="number" id="invite-limit" class="admin-input" value="1" min="0">
+				</div>
+			</div>
 			
-			<label class="modal-label">最大使用次数 (0 为无限):</label>
-			<input type="number" id="invite-limit" class="admin-input" value="1" min="0">
-			
-			<label class="modal-label">备注:</label>
-			<input type="text" id="invite-note" class="admin-input" placeholder="给谁的链接...">
+			<label class="modal-label">备注 (仅管理员可见)</label>
+			<input type="text" id="invite-note" class="admin-input" placeholder="例如: 给客户张三的链接">
 			
 			<div id="invite-result" class="share-result"></div>
 			
@@ -104,46 +124,48 @@
 	<!-- 3. 访客极简登录弹窗 -->
 	<div id="guest-modal" class="modal-overlay" style="z-index: 2001;">
 		<div class="modal-box">
-			<h3 class="modal-title" id="guest-welcome-title">加入房间</h3>
+			<h3 class="modal-title" id="guest-welcome-title">加入加密房间</h3>
 			<form id="guest-login-form">
-				<label class="modal-label">设置你的昵称</label>
-				<input type="text" id="guest-nickname" class="admin-input" placeholder="例如：访客007" required autocomplete="off">
+				<label class="modal-label">设置您的昵称</label>
+				<input type="text" id="guest-nickname" class="admin-input" placeholder="访客..." required autocomplete="off">
 				
 				<div id="guest-pwd-group" style="display:none;">
 					<label class="modal-label">房间密码</label>
-					<input type="password" id="guest-room-pwd" class="admin-input" placeholder="管理员设置了密码保护" autocomplete="off" value="123456">
+					<input type="password" id="guest-room-pwd" class="admin-input" placeholder="请输入密码" autocomplete="off" value="123456">
 				</div>
 
 				<div class="modal-btn-group">
-					<button type="submit" class="modal-btn btn-confirm">进入聊天室</button>
+					<button type="submit" class="modal-btn btn-confirm">立即加入</button>
 				</div>
 			</form>
 		</div>
 	</div>
 
-	<!-- 原有主界面 (已修改文本: 节点->房间) -->
+	<!-- 主登录界面 (去掉了 data-i18n 属性，防止文字被改回“节点”) -->
 	<div class="login-container" id="login-container">
 		<div class="flip-card" id="flip-card">
 			<div class="flip-card-inner">
 				<div class="flip-card-front">
-					<button class="help-btn" id="help-btn" type="button"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg></button>
+					<button class="help-btn" id="help-btn" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg></button>
 					<h1 id="login-title">NodeCrypt</h1>
-					<!-- 这里为了确保去节点化，我们手动写死表单结构，覆盖 JS 生成的内容 -->
 					<form id="login-form">
 						<div class="form-group">
 							<div class="input-wrapper">
 								<input type="text" id="userName" required autocomplete="off">
+								<!-- 注意：去掉了 data-i18n -->
 								<label for="userName" class="label-name"><span class="content-name">昵称 (Nickname)</span></label>
 							</div>
 						</div>
 						<div class="form-group">
 							<div class="input-wrapper">
 								<input type="text" id="roomName" required autocomplete="off">
+								<!-- 强制显示为“房间号” -->
 								<label for="roomName" class="label-name"><span class="content-name">房间号 (Room ID)</span></label>
 							</div>
 						</div>
 						<div class="form-group">
 							<div class="input-wrapper">
+								<!-- 预设密码 123456 -->
 								<input type="password" id="password" autocomplete="off" value="123456">
 								<label for="password" class="label-name"><span class="content-name">密码 (可选)</span></label>
 							</div>
@@ -154,52 +176,52 @@
 					</form>
 				</div>
 				<div class="flip-card-back">
-					<button class="help-btn back-btn" id="back-btn" type="button"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
-					<h2 data-i18n="help.usage_guide">使用指南</h2>
+					<button class="help-btn back-btn" id="back-btn" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
+					<h2>使用指南</h2>
 					<div class="help-content">
 						<div class="help-section">
-                            <h3>什么是 NodeCrypt?</h3>
-                            <p>这是一个端到端加密的聊天室，服务器无法看到你的消息内容。</p>
+                            <h3>安全提示</h3>
+                            <p>这是一个端到端加密的聊天室。房间号即密钥，请妥善保管。</p>
                         </div>
 					</div>
 				</div>
 			</div>
 		</div>
-		<div class="powered-by">Powered by <a href="#">NodeCrypt</a></div>
+		<div class="powered-by">Powered by NodeCrypt</div>
 	</div>
 
-	<!-- 聊天界面保持不变 -->
+	<!-- 聊天界面 -->
 	<div class="container" id="chat-container" style="display:none;">
 		<div class="mobile-sidebar-mask" id="mobile-sidebar-mask"></div>
 		<div class="mobile-rightbar-mask" id="mobile-rightbar-mask"></div>
 		
-		<div class="settings-sidebar" id="settings-sidebar" style="display:none;">
-			<div class="settings-header">
-				<button class="settings-back-btn" id="settings-back-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
-				<h2 class="settings-title" id="settings-title"></h2>
-			</div>
-			<div class="settings-content" id="settings-content">
-				<!-- 管理员专属菜单 -->
-				<div class="settings-group admin-only" id="admin-share-group" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px;">
-					<div class="settings-item" onclick="document.getElementById('invite-modal').style.display='flex'">
-						<div class="settings-icon">
-							<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
-						</div>
-						<div class="settings-label">生成邀请链接</div>
-					</div>
-				</div>
-			</div>
-		</div>
-
+		<!-- 侧边栏 -->
 		<div class="sidebar" id="sidebar">
-			<div class="sidebar-user"> <span class="avatar" id="sidebar-user-avatar"></span> <span class="sidebar-username" id="sidebar-username"></span> <button class="settings-btn" id="settings-btn"> <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> </button> </div>
-			<div class="join-room"> <svg class="MuiSvgIcon-root icon-22-middle" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3.01H3c-1.1 0-2 .9-2 2V9h2V4.99h18v14.03H3V15H1v4.01c0 1.1.9 1.98 2 1.98h18c1.1 0 2-.88 2-1.98v-14c0-1.11-.9-2-2-2zM11 16l4-4-4-4v3H1v2h10v3z"></path></svg> <span id="join-room-text"></span> </div>
-			<div class="rooms" id="room-list"> </div>
+			<div class="sidebar-user"> 
+				<span class="avatar" id="sidebar-user-avatar"></span> 
+				<span class="sidebar-username" id="sidebar-username"></span> 
+				<button class="settings-btn" id="settings-btn" title="设置"> 
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> 
+				</button> 
+			</div>
+			
+			<!-- 显眼的生成邀请链接按钮 (管理员可见) -->
+			<div class="invite-fab admin-only" onclick="document.getElementById('invite-modal').style.display='flex'">
+				<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+				<span>生成邀请链接</span>
+			</div>
+
+			<div class="join-room"> 
+				<svg class="MuiSvgIcon-root icon-22-middle" focusable="false" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"></path></svg> 
+				<span id="join-room-text">加入新房间</span> 
+			</div>
+			<div class="rooms" id="room-list"></div>
 		</div>
 
 		<div class="main">
-			<div class="main-header" id="main-header"> </div>
-			<div class="chat-area" id="chat-area"> </div>
+			<div class="main-header" id="main-header"></div>
+			<div class="chat-area" id="chat-area"></div>
+			<!-- 输入框区域 -->
 			<div class="chat-input-area">
 				<div class="rows-wrapper chat-input-wrapper chat-input-main-wrapper chat-rows-wrapper">
 					<div class="new-message-wrapper rows-wrapper-row" data-offset="commands"> 
@@ -217,7 +239,18 @@
 
 		<div class="rightbar" id="rightbar">
 			<div class="rightbar-header"><div class="rightbar-group"><div class="group-info"><div class="title" id="members-title"></div><div class="group-desc" id="rightbar-group-desc"></div></div></div></div>
-			<div class="rightbar-tabs tabs" id="member-tabs"> </div><div class="members" id="member-list"> </div>
+			<div class="rightbar-tabs tabs" id="member-tabs"></div><div class="members" id="member-list"></div>
+		</div>
+
+		<!-- 设置菜单 -->
+		<div class="settings-sidebar" id="settings-sidebar" style="display:none;">
+			<div class="settings-header">
+				<button class="settings-back-btn" id="settings-back-btn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#808080" stroke-width="2"><path d="M15 18L9 12L15 6"/></svg></button>
+				<h2 class="settings-title">设置</h2>
+			</div>
+			<div class="settings-content" id="settings-content">
+				<!-- 原有内容通过JS加载 -->
+			</div>
 		</div>
 	</div>
 	<script type="module" src="./js/main.js"></script>
