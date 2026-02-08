@@ -23,7 +23,13 @@ export default {
     const url = new URL(request.url);
     const cookie = request.headers.get('Cookie') || "";
 
-    // === API: 验证邀请码 (处理 /join?code=xxx) ===
+    // === 0. 路径规范化 (处理尾部斜杠) ===
+    // 强制去除 /admin/ 或 /join/ 的尾部斜杠，解决静态资源相对路径加载错误的问题
+    if (url.pathname === '/admin/' || url.pathname === '/join/') {
+        return Response.redirect(`${url.origin}${url.pathname.slice(0, -1)}`, 301);
+    }
+
+    // === API: 验证邀请码 (处理 /join?code=xxx 的验证请求) ===
     if (url.pathname === '/api/verify-invite') {
         const { code } = await request.json();
         const id = env.CHAT_ROOM.idFromName('chat-room');
@@ -88,20 +94,18 @@ export default {
       return stub.fetch(request);
     }
 
-    // 2. 静态资源与页面访问控制
-    const isAuthorized = await checkAuth(cookie, env);
-    
-    // 如果访问的是 /admin，不论是否授权，都返回前端页面（前端会判断是否需要弹窗登录）
-    if (url.pathname === '/admin') {
+    // 2. 特殊页面路由 (确保这些路径总是返回前端应用，不受鉴权影响)
+    // 如果访问的是 /admin 或 /join，不论是否授权，都强制返回 index.html
+    // 前端 JS 会根据路径显示相应的登录或验证界面
+    if (url.pathname === '/admin' || url.pathname === '/join') {
          return env.ASSETS.fetch(new Request(`${url.origin}/index.html`, request));
     }
 
-    // 如果是邀请链接跳转 /join，返回前端页面（前端处理 code 参数）
-    if (url.pathname === '/join') {
-        return env.ASSETS.fetch(new Request(`${url.origin}/index.html`, request));
-    }
+    // 3. 静态资源与普通页面访问控制
+    const isAuthorized = await checkAuth(cookie, env);
 
-    // 3. 根路径和 HTML 文件的伪装逻辑
+    // 4. 根路径和 HTML 文件的伪装逻辑
+    // 只有未授权 且 访问的是根路径或HTML文件时，才显示伪装
     if (url.pathname === '/' || url.pathname.endsWith('.html')) {
         if (!isAuthorized) {
             // === 伪装开始 ===
@@ -126,7 +130,7 @@ export default {
         }
     }
 
-    // 已授权或非敏感资源，正常放行
+    // 已授权或非敏感资源 (js/css/images)，正常放行
     return env.ASSETS.fetch(request);
   }
 };
