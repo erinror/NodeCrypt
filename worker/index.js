@@ -94,19 +94,27 @@ export default {
       return stub.fetch(request);
     }
 
-    // 2. 特殊页面路由 (确保这些路径总是返回前端应用，不受鉴权影响)
+    // 2. 特殊页面路由 (关键修复点)
     // 如果访问的是 /admin 或 /join，不论是否授权，都强制返回 index.html
-    // 前端 JS 会根据路径显示相应的登录或验证界面
+    // 修复：添加 'X-Internal-Bypass' 头，防止 env.ASSETS.fetch 递归触发下方的伪装逻辑
     if (url.pathname === '/admin' || url.pathname === '/join') {
-         return env.ASSETS.fetch(new Request(`${url.origin}/index.html`, request));
+         const newHeaders = new Headers(request.headers);
+         newHeaders.set('X-Internal-Bypass', 'true'); // 添加标记
+         const newReq = new Request(`${url.origin}/index.html`, {
+             method: request.method,
+             headers: newHeaders,
+             body: request.body
+         });
+         return env.ASSETS.fetch(newReq);
     }
 
     // 3. 静态资源与普通页面访问控制
     const isAuthorized = await checkAuth(cookie, env);
+    const isInternalBypass = request.headers.get('X-Internal-Bypass') === 'true'; // 检查标记
 
     // 4. 根路径和 HTML 文件的伪装逻辑
-    // 只有未授权 且 访问的是根路径或HTML文件时，才显示伪装
-    if (url.pathname === '/' || url.pathname.endsWith('.html')) {
+    // 只有未授权 且 访问的是根路径或HTML文件 且 不是内部标记请求时，才显示伪装
+    if ((url.pathname === '/' || url.pathname.endsWith('.html')) && !isInternalBypass) {
         if (!isAuthorized) {
             // === 伪装开始 ===
             if (env.URL) {
