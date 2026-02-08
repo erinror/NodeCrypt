@@ -23,18 +23,17 @@ export default {
     const url = new URL(request.url);
     const cookie = request.headers.get('Cookie') || "";
 
-    // === 0. 路径规范化 (处理尾部斜杠) ===
-    // 强制去除 /admin/ 或 /join/ 的尾部斜杠，解决静态资源相对路径加载错误的问题
+    // === 0. 路径规范化 ===
     if (url.pathname === '/admin/' || url.pathname === '/join/') {
         return Response.redirect(`${url.origin}${url.pathname.slice(0, -1)}`, 301);
     }
 
-    // === API: 验证邀请码 (处理 /join?code=xxx 的验证请求) ===
+    // === API: 验证邀请码 ===
     if (url.pathname === '/api/verify-invite') {
         const { code } = await request.json();
         const id = env.CHAT_ROOM.idFromName('chat-room');
         const stub = env.CHAT_ROOM.get(id);
-        // 向 DO 请求验证
+        
         const res = await stub.fetch(new Request(`${url.origin}/internal/verify-invite`, {
             method: 'POST',
             body: JSON.stringify({ code })
@@ -43,11 +42,16 @@ export default {
         if (res.ok) {
             const data = await res.json();
             const headers = new Headers();
-            // 设置 7 天的 Cookie
+            // 设置 Cookie
             headers.append('Set-Cookie', `auth=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
-            return new Response(JSON.stringify({ ok: true }), { headers });
+            // 返回房间信息给前端
+            return new Response(JSON.stringify({ 
+                ok: true, 
+                room: data.room,
+                needPwd: data.needPwd 
+            }), { headers });
         }
-        return new Response(JSON.stringify({ ok: false, error: '无效链接' }), { status: 403 });
+        return new Response(JSON.stringify({ ok: false, error: '无效链接或已过期' }), { status: 403 });
     }
 
     // === API: 管理员登录 ===
@@ -56,13 +60,13 @@ export default {
         if (body.pwd === env.PWD) {
             const headers = new Headers();
             const adminToken = await generateToken(env.PWD, 'admin');
-            headers.append('Set-Cookie', `auth=${adminToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`); // 30天
+            headers.append('Set-Cookie', `auth=${adminToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
             return new Response(JSON.stringify({ ok: true, isAdmin: true }), { headers });
         }
         return new Response(JSON.stringify({ ok: false }), { status: 401 });
     }
 
-    // === API: 生成邀请链接 (需要管理员权限) ===
+    // === API: 生成邀请链接 ===
     if (url.pathname === '/api/admin/create-invite') {
         if (!await checkAuth(cookie, env, true)) return new Response('Unauthorized', { status: 401 });
         
@@ -75,7 +79,7 @@ export default {
         }));
     }
     
-    // === API: 检查当前登录状态 (前端用来判断是否显示分享按钮) ===
+    // === API: 检查权限 ===
     if (url.pathname === '/api/check-auth') {
         const isAdmin = await checkAuth(cookie, env, true);
         return new Response(JSON.stringify({ isAdmin }));
@@ -83,7 +87,7 @@ export default {
 
     // === 核心拦截逻辑 ===
     
-    // 1. WebSocket 连接前检查权限
+    // WebSocket
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader && upgradeHeader === 'websocket') {
       if (!await checkAuth(cookie, env)) {
@@ -94,12 +98,10 @@ export default {
       return stub.fetch(request);
     }
 
-    // 2. 特殊页面路由 (关键修复点)
-    // 如果访问的是 /admin 或 /join，不论是否授权，都强制返回 index.html
-    // 修复：添加 'X-Internal-Bypass' 头，防止 env.ASSETS.fetch 递归触发下方的伪装逻辑
+    // 特殊页面路由
     if (url.pathname === '/admin' || url.pathname === '/join') {
          const newHeaders = new Headers(request.headers);
-         newHeaders.set('X-Internal-Bypass', 'true'); // 添加标记
+         newHeaders.set('X-Internal-Bypass', 'true');
          const newReq = new Request(`${url.origin}/index.html`, {
              method: request.method,
              headers: newHeaders,
@@ -108,15 +110,13 @@ export default {
          return env.ASSETS.fetch(newReq);
     }
 
-    // 3. 静态资源与普通页面访问控制
+    // 静态资源与鉴权
     const isAuthorized = await checkAuth(cookie, env);
-    const isInternalBypass = request.headers.get('X-Internal-Bypass') === 'true'; // 检查标记
+    const isInternalBypass = request.headers.get('X-Internal-Bypass') === 'true';
 
-    // 4. 根路径和 HTML 文件的伪装逻辑
-    // 只有未授权 且 访问的是根路径或HTML文件 且 不是内部标记请求时，才显示伪装
+    // 伪装逻辑
     if ((url.pathname === '/' || url.pathname.endsWith('.html')) && !isInternalBypass) {
         if (!isAuthorized) {
-            // === 伪装开始 ===
             if (env.URL) {
                 try {
                     const proxyUrl = new URL(env.URL);
@@ -126,9 +126,7 @@ export default {
                         redirect: 'follow'
                     });
                     const proxyRes = await fetch(proxyReq);
-                    // 复制响应，避免不可变对象错误
-                    const newRes = new Response(proxyRes.body, proxyRes);
-                    return newRes;
+                    return new Response(proxyRes.body, proxyRes);
                 } catch (e) {
                     return new Response(NGINX_TEMPLATE, { headers: { "Content-Type": "text/html" } });
                 }
@@ -138,7 +136,6 @@ export default {
         }
     }
 
-    // 已授权或非敏感资源 (js/css/images)，正常放行
     return env.ASSETS.fetch(request);
   }
 };
@@ -148,8 +145,7 @@ async function generateToken(secret, prefix) {
     const msgUint8 = new TextEncoder().encode(secret + "salt_v1");
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return `${prefix}_${hashHex}`;
+    return `${prefix}_${hashArray.map(b => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
 async function checkAuth(cookieStr, env, requireAdmin = false) {
@@ -164,13 +160,11 @@ async function checkAuth(cookieStr, env, requireAdmin = false) {
     }
     
     if (requireAdmin) return false; 
-
-    // 简单验证访客 Token 格式
     return token.startsWith('guest_') && token.length > 10; 
 }
 
 
-// === Durable Object (聊天室状态 + 邀请码存储) ===
+// === Durable Object ===
 export class ChatRoom {
   constructor(state, env) {
     this.state = state;
@@ -183,37 +177,50 @@ export class ChatRoom {
   async fetch(request) {
     const url = new URL(request.url);
 
-    // [DO 内部接口] 创建邀请码
+    // [DO] 创建邀请码
     if (url.pathname.endsWith('/internal/create-invite')) {
-        const { maxUses, note } = await request.json();
-        const code = crypto.randomUUID().split('-')[0]; // 短码
+        const { maxUses, note, expireMinutes, room, needPwd } = await request.json();
+        const code = crypto.randomUUID().split('-')[0];
         const invite = {
             code,
             maxUses: maxUses || 0,
             uses: 0,
             createdAt: Date.now(),
-            note
+            expireAt: expireMinutes ? Date.now() + (expireMinutes * 60 * 1000) : null,
+            note,
+            room: room || '', // 绑定的房间名
+            needPwd: !!needPwd // 是否需要密码
         };
         await this.state.storage.put('invite:' + code, invite);
         return new Response(JSON.stringify(invite));
     }
 
-    // [DO 内部接口] 验证邀请码
+    // [DO] 验证邀请码
     if (url.pathname.endsWith('/internal/verify-invite')) {
         const { code } = await request.json();
         const invite = await this.state.storage.get('invite:' + code);
         
         if (!invite) return new Response('Not Found', { status: 404 });
+        
+        // 检查次数
         if (invite.maxUses > 0 && invite.uses >= invite.maxUses) return new Response('Expired', { status: 403 });
+        
+        // 检查过期时间
+        if (invite.expireAt && Date.now() > invite.expireAt) return new Response('Expired', { status: 403 });
 
         invite.uses += 1;
         await this.state.storage.put('invite:' + code, invite);
         
         const token = 'guest_' + crypto.randomUUID();
-        return new Response(JSON.stringify({ token }));
+        // 返回房间信息供前端跳转
+        return new Response(JSON.stringify({ 
+            token, 
+            room: invite.room,
+            needPwd: invite.needPwd
+        }));
     }
 
-    // WebSocket 逻辑 (保持原样，省略部分重复代码以节省空间，功能不变)
+    // WebSocket 保持原样
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader !== 'websocket') return new Response('Expected WebSocket Upgrade', { status: 426 });
 
@@ -224,9 +231,8 @@ export class ChatRoom {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // === 以下为原有的 WebSocket 处理逻辑，完全保留 ===
+  // === 原有 WebSocket 逻辑 (省略以节省空间，功能不变) ===
   async initRSAKeyPair() {
-      // 保持原有逻辑...
       try {
       let stored = await this.state.storage.get('rsaKeyPair');
       if (!stored) {
@@ -251,12 +257,10 @@ export class ChatRoom {
           'pkcs8', privateKeyBuffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
         );      }
         this.keyPair = stored;
-        // 轮换逻辑略...
-    } catch (e) { console.error(e); }
+      } catch (e) { console.error(e); }
   }
 
   async handleSession(connection) {    
-      // 保持原有逻辑...
       connection.accept();
       await this.cleanupOldConnections();
       const clientId = generateClientId();
@@ -271,9 +275,7 @@ export class ChatRoom {
           this.clients[clientId].seen = getTime();
           if (message === 'ping') { this.sendMessage(connection, 'pong'); return; }
 
-          // Key Exchange & Message Processing (与原版完全一致)
           if (!this.clients[clientId].shared && message.length < 2048) {
-              // ECDH Handshake...
               try {
                 const keys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-384' }, true, ['deriveBits', 'deriveKey']);
                 const publicKeyBuffer = await crypto.subtle.exportKey('raw', keys.publicKey);
@@ -291,19 +293,17 @@ export class ChatRoom {
       });
 
       connection.addEventListener('close', async () => {
-          // 清理逻辑...
           const channel = this.clients[clientId].channel;
           if (channel && this.channels[channel]) {
             this.channels[channel].splice(this.channels[channel].indexOf(clientId), 1);
             if (this.channels[channel].length === 0) delete(this.channels[channel]);
-            else this.broadcastMemberList(channel); // 简化调用
+            else this.broadcastMemberList(channel); 
           }
           delete(this.clients[clientId]);
       });
   }
 
   processEncryptedMessage(clientId, message) {
-    // 保持原有逻辑...
     try {
       const decrypted = decryptMessage(message, this.clients[clientId].shared);
       if (!isObject(decrypted) || !isString(decrypted.a)) return;
@@ -312,10 +312,6 @@ export class ChatRoom {
       else if (decrypted.a === 'w') this.handleChannelMessage(clientId, decrypted);
     } catch (e) {}
   }
-  // 其他原有 helper 方法 (handleJoinChannel, handleClientMessage, sendMessage 等) 请保持原样，
-  // 它们不需要修改，只需要保证上面的 handleSession 调用它们即可。
-  
-  // 为确保代码完整性，以下简写关键方法，实际部署请保留原文件中的完整实现
   handleJoinChannel(clientId, decrypted) {
       const channel = decrypted.p;
       this.clients[clientId].channel = channel;
@@ -324,7 +320,6 @@ export class ChatRoom {
       this.broadcastMemberList(channel);
   }
   handleClientMessage(clientId, decrypted) {
-      // 转发逻辑...
        try {
         const channel = this.clients[clientId].channel;
         const targetClient = this.clients[decrypted.c];
@@ -336,7 +331,6 @@ export class ChatRoom {
       } catch (e) {}
   }
   handleChannelMessage(clientId, decrypted) {
-      // 广播逻辑...
       try {
       const channel = this.clients[clientId].channel;
       const validMembers = Object.keys(decrypted.p).filter(member => {
@@ -350,7 +344,6 @@ export class ChatRoom {
     } catch (e) {}
   }
   broadcastMemberList(channel) {
-      // 列表更新...
       try {
       const members = this.channels[channel];
       for (const member of members) {
@@ -365,7 +358,6 @@ export class ChatRoom {
   sendMessage(conn, msg) { if (conn.readyState === 1) conn.send(msg); }
   closeConnection(conn) { try { conn.close(); } catch(e){} }
   async cleanupOldConnections() { 
-      // 清理过期连接...
       const seenThreshold = getTime() - this.config.seenTimeout;
       const clientsToRemove = [];
       for (const cid in this.clients) if (this.clients[cid].seen < seenThreshold) clientsToRemove.push(cid);
