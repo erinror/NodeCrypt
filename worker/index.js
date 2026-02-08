@@ -30,45 +30,57 @@ export default {
 
     // === API: 验证邀请码 ===
     if (url.pathname === '/api/verify-invite') {
-        const { code } = await request.json();
-        const id = env.CHAT_ROOM.idFromName('chat-room');
-        const stub = env.CHAT_ROOM.get(id);
-        
-        const res = await stub.fetch(new Request(`${url.origin}/internal/verify-invite`, {
-            method: 'POST',
-            body: JSON.stringify({ code })
-        }));
-        
-        if (res.ok) {
-            const data = await res.json();
-            const headers = new Headers();
-            // 设置 Cookie
-            headers.append('Set-Cookie', `auth=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
-            // 返回房间信息给前端
-            return new Response(JSON.stringify({ 
-                ok: true, 
-                room: data.room,
-                needPwd: data.needPwd 
-            }), { headers });
+        try {
+            const { code } = await request.json();
+            const id = env.CHAT_ROOM.idFromName('chat-room');
+            const stub = env.CHAT_ROOM.get(id);
+            
+            const res = await stub.fetch(new Request(`${url.origin}/internal/verify-invite`, {
+                method: 'POST',
+                body: JSON.stringify({ code })
+            }));
+            
+            if (res.ok) {
+                const data = await res.json();
+                const headers = new Headers();
+                // 设置 Cookie
+                headers.append('Set-Cookie', `auth=${data.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
+                return new Response(JSON.stringify({ 
+                    ok: true, 
+                    room: data.room,
+                    needPwd: data.needPwd 
+                }), { headers });
+            }
+            return new Response(JSON.stringify({ ok: false, error: '无效链接或已过期' }), { status: 403 });
+        } catch (e) {
+            return new Response(JSON.stringify({ ok: false, error: '服务器错误' }), { status: 500 });
         }
-        return new Response(JSON.stringify({ ok: false, error: '无效链接或已过期' }), { status: 403 });
     }
 
     // === API: 管理员登录 ===
     if (url.pathname === '/api/login') {
-        const body = await request.json();
-        if (body.pwd === env.PWD) {
-            const headers = new Headers();
-            const adminToken = await generateToken(env.PWD, 'admin');
-            headers.append('Set-Cookie', `auth=${adminToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
-            return new Response(JSON.stringify({ ok: true, isAdmin: true }), { headers });
+        try {
+            const body = await request.json();
+            // 兼容: 如果 env.PWD 未设置，拒绝登录
+            if (!env.PWD) return new Response(JSON.stringify({ ok: false, error: '未配置密码' }), { status: 500 });
+            
+            if (body.pwd === env.PWD) {
+                const headers = new Headers();
+                const adminToken = await generateToken(env.PWD, 'admin');
+                headers.append('Set-Cookie', `auth=${adminToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+                return new Response(JSON.stringify({ ok: true, isAdmin: true }), { headers });
+            }
+            return new Response(JSON.stringify({ ok: false }), { status: 401 });
+        } catch (e) {
+            return new Response(JSON.stringify({ ok: false }), { status: 400 });
         }
-        return new Response(JSON.stringify({ ok: false }), { status: 401 });
     }
 
     // === API: 生成邀请链接 ===
     if (url.pathname === '/api/admin/create-invite') {
-        if (!await checkAuth(cookie, env, true)) return new Response('Unauthorized', { status: 401 });
+        if (!await checkAuth(cookie, env, true)) {
+            return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401 });
+        }
         
         const params = await request.json();
         const id = env.CHAT_ROOM.idFromName('chat-room');
@@ -98,7 +110,7 @@ export default {
       return stub.fetch(request);
     }
 
-    // 特殊页面路由
+    // 特殊页面路由 (防递归 + 放行静态资源)
     if (url.pathname === '/admin' || url.pathname === '/join') {
          const newHeaders = new Headers(request.headers);
          newHeaders.set('X-Internal-Bypass', 'true');
@@ -155,6 +167,8 @@ async function checkAuth(cookieStr, env, requireAdmin = false) {
     const token = match[1];
 
     if (token.startsWith('admin_')) {
+        // 如果 env.PWD 没设置，这里会报错或生成错误的 token，所以要在前面 guard
+        if (!env.PWD) return false;
         const expected = await generateToken(env.PWD, 'admin');
         return token === expected;
     }
@@ -188,8 +202,8 @@ export class ChatRoom {
             createdAt: Date.now(),
             expireAt: expireMinutes ? Date.now() + (expireMinutes * 60 * 1000) : null,
             note,
-            room: room || '', // 绑定的房间名
-            needPwd: !!needPwd // 是否需要密码
+            room: room ? String(room).trim() : '', // 关键修复：去除首尾空格
+            needPwd: !!needPwd
         };
         await this.state.storage.put('invite:' + code, invite);
         return new Response(JSON.stringify(invite));
@@ -212,7 +226,6 @@ export class ChatRoom {
         await this.state.storage.put('invite:' + code, invite);
         
         const token = 'guest_' + crypto.randomUUID();
-        // 返回房间信息供前端跳转
         return new Response(JSON.stringify({ 
             token, 
             room: invite.room,
@@ -231,7 +244,7 @@ export class ChatRoom {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // === 原有 WebSocket 逻辑 (省略以节省空间，功能不变) ===
+  // === WebSocket 逻辑 (保持不变) ===
   async initRSAKeyPair() {
       try {
       let stored = await this.state.storage.get('rsaKeyPair');
